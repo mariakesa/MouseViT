@@ -38,8 +38,8 @@ def main():
     stimulus = 'natural_movie_three'
     
     folds = pipeline.run((container_id, session, stimulus))
-    for i, (X_train, X_test) in enumerate(folds, start=1):
-        print(f"Fold {i}: train={X_train.shape}, test={X_test.shape}")
+    for i, (X_train, frames_train, X_test, frames_test) in enumerate(folds, start=1):
+        print(f"Fold {i}: train={X_train.shape}, test={X_test.shape}, frames={frames_train.shape}, frames_test={frames_test.shape}")
 
 if __name__ == "__main__":
     main()
