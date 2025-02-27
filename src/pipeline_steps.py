@@ -137,7 +137,7 @@ class ImageToEmbeddingStep(PipelineStep):
 
     
 class StimulusGroupKFoldSplitterStep(PipelineStep):
-    def __init__(self, boc, eid_dict, stimulus_session_dict, n_splits=5):
+    def __init__(self, boc, eid_dict, stimulus_session_dict, n_splits=10):
         """
         :param boc: Allen BrainObservatoryCache
         :param eid_dict: container_id -> { session: eid }
@@ -166,7 +166,10 @@ class StimulusGroupKFoldSplitterStep(PipelineStep):
         session_eid = self.eid_dict[container_id][session]
 
         dataset = self.boc.get_ophys_experiment_data(session_eid)
-        dff_traces = dataset.get_dff_traces()[1]  # shape (n_neurons, n_timepoints)
+        
+        #dff_traces = dataset.get_dff_traces()[1]  # shape (n_neurons, n_timepoints)
+        dff_traces= self.boc.get_ophys_experiment_events(ophys_experiment_id=session_eid)
+        #dff_traces = dataset
 
         stim_table = dataset.get_stimulus_table(stimulus)
 

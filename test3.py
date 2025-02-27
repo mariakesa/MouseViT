@@ -43,7 +43,7 @@ def main():
     # C) Session->stimuli mapping
     stimulus_session_dict = {
         'three_session_A': ['natural_movie_one', 'natural_movie_three'],
-        'three_session_B': ['natural_movie_one'],
+        'three_session_B': ['natural_movie_one', 'natural_scenes'],
         'three_session_C': ['natural_movie_one', 'natural_movie_two'],
         'three_session_C2': ['natural_movie_one', 'natural_movie_two']
     }
@@ -59,14 +59,16 @@ def main():
     pipeline = AnalysisPipeline([
         AllenStimuliFetchStep(boc),
         ImageToEmbeddingStep(processor, model, embedding_cache_dir),
-        StimulusGroupKFoldSplitterStep(boc, eid_dict, stimulus_session_dict, n_splits=3),
+        StimulusGroupKFoldSplitterStep(boc, eid_dict, stimulus_session_dict, n_splits=10),
         MergeEmbeddingsStep(),  # merges the neural folds with the image embeddings
     ])
 
     # G) Run pipeline on a single container/session/stimulus
     container_id = 511498742
-    session = 'three_session_A'
-    stimulus = 'natural_movie_three'
+    #session = 'three_session_A'
+    #stimulus = 'natural_movie_three'
+    session='three_session_B'
+    stimulus='natural_scenes'
     result = pipeline.run((container_id, session, stimulus))
 
     # H) Print final results
