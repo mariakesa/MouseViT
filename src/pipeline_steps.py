@@ -157,7 +157,7 @@ class StimulusGroupKFoldSplitterStep(PipelineStep):
         container_id = data['container_id']
         session = data['session']
         stimulus = data['stimulus']
-
+        
         valid_stims = self.stimulus_session_dict.get(session, [])
         if stimulus not in valid_stims:
             raise ValueError(f"Stimulus '{stimulus}' not valid for session '{session}'. "
@@ -173,24 +173,29 @@ class StimulusGroupKFoldSplitterStep(PipelineStep):
 
         stim_table = dataset.get_stimulus_table(stimulus)
 
+
         X_list, frame_list, groups = [], [], []
 
         for _, row_ in stim_table.iterrows():
-            start_t, end_t = row_['start'], row_['end']
-            frame_idx = row_['frame']
-            time_indices = range(start_t, end_t)
+            if row_['frame']!=-1:
+                start_t, end_t = row_['start'], row_['end']
+                frame_idx = row_['frame']
+                time_indices = range(start_t, end_t)
 
-            if len(time_indices) == 0:
-                trial_vector = np.zeros(dff_traces.shape[0])
+                if len(time_indices) == 0:
+                    trial_vector = np.zeros(dff_traces.shape[0])
+                else:
+                    relevant_traces = dff_traces[:, time_indices]
+                    trial_vector = np.max(relevant_traces, axis=1)
+                
+                X_list.append(trial_vector)
+                frame_list.append(frame_idx)
+                groups.append(frame_idx)
             else:
-                relevant_traces = dff_traces[:, time_indices]
-                trial_vector = np.max(relevant_traces, axis=1)
-            
-            X_list.append(trial_vector)
-            frame_list.append(frame_idx)
-            groups.append(frame_idx)
+                pass
 
         X = np.vstack(X_list)
+        print(X.shape)
         frames = np.array(frame_list)
         groups = np.array(groups)
 
@@ -237,6 +242,7 @@ class MergeEmbeddingsStep(PipelineStep):
         # Note: we assume the indexing in all_stim_embeddings[stimulus]
         # matches the 'frame_idx' from the Allen table.
         embed_array = all_stim_embeddings[stimulus]
+        #print(embed_array.shape)
 
         merged_folds = []
         for (Xn_train, frames_train, Xn_test, frames_test) in folds:
