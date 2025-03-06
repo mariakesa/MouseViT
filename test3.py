@@ -39,6 +39,7 @@ def main():
 
     # B) Container dict
     eid_dict = make_container_dict(boc)
+    print(len(eid_dict), "containers found.")
 
     # C) Session->stimuli mapping
     stimulus_session_dict = {

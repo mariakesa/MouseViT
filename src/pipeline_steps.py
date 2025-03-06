@@ -172,6 +172,7 @@ class StimulusGroupKFoldSplitterStep(PipelineStep):
         #dff_traces = dataset
 
         stim_table = dataset.get_stimulus_table(stimulus)
+        print(stim_table)
 
 
         X_list, frame_list, groups = [], [], []
@@ -315,6 +316,114 @@ class StatisticalAnalysisStep(PipelineStep):
             # more metrics...
         }
 '''
+
+import pymc as pm
+import numpy as np
+import pandas as pd
+from abc import ABC, abstractmethod
+
+class BayesianHypothesisTestingStep(PipelineStep):
+    """
+    A pipeline step that performs Bayesian hypothesis testing across neurons,
+    comparing log-likelihoods between a trained and untrained model.
+    
+    Expects data['logliks'] to be of shape (n_neurons, n_folds, 2),
+    where the last dimension is [trained_LLs, untrained_LLs].
+    
+    Returns data['bayesian_results'] with the posterior summary for each neuron's delta.
+    """
+    
+    def __init__(self, draws=2000, tune=1000, target_accept=0.9, random_seed=42):
+        """
+        :param draws: Number of MCMC draws
+        :param tune: Number of tuning (warm-up) steps
+        :param target_accept: Target acceptance rate for sampling
+        :param random_seed: Random seed for reproducibility
+        """
+        self.draws = draws
+        self.tune = tune
+        self.target_accept = target_accept
+        self.random_seed = random_seed
+
+    def process(self, data):
+        # 1) Extract log-likelihoods: shape (n_neurons, n_folds, 2)
+        logliks = data.get('logliks', None)
+        if logliks is None:
+            raise ValueError("data['logliks'] is missing. "
+                             "Expected shape (n_neurons, n_folds, 2).")
+        
+        n_neurons, n_folds, _ = logliks.shape
+        
+        # 2) Compute the difference for each neuron and fold: d_ij = L_trained - L_untrained
+        differences = logliks[..., 0] - logliks[..., 1]  # shape (n_neurons, n_folds)
+        
+        # We'll flatten these so we can use indexes in a hierarchical model.
+        # i.e. "neuron_idx" says which neuron each row belongs to.
+        # This is a standard approach in PyMC for partial pooling.
+        neuron_idx = np.repeat(np.arange(n_neurons), n_folds)
+        diff_flat = differences.flatten()
+        
+        # 3) Build and sample from the Bayesian model
+        with pm.Model() as model:
+            # --- Hyperpriors for the per-neuron deltas ---
+            mu_delta = pm.Normal("mu_delta", mu=0.0, sigma=1.0)
+            sigma_delta = pm.HalfCauchy("sigma_delta", beta=2.5)
+            
+            # Each neuron i has a random effect delta_i
+            delta_i = pm.Normal("delta_i",
+                                mu=mu_delta,
+                                sigma=sigma_delta,
+                                shape=n_neurons)
+            
+            # Common measurement noise across folds
+            #   (If you have reason to believe each neuron or fold has its own variance,
+            #    you can extend this model to handle that.)
+            sigma_lik = pm.HalfCauchy("sigma_lik", beta=2.5)
+            
+            # Observed differences
+            pm.Normal("obs",
+                      mu=delta_i[neuron_idx],
+                      sigma=sigma_lik,
+                      observed=diff_flat)
+            
+            # 4) Sample from the posterior
+            trace = pm.sample(draws=self.draws,
+                              tune=self.tune,
+                              target_accept=self.target_accept,
+                              random_seed=self.random_seed,
+                              cores=1)  # or cores > 1 if available
+        
+        # 5) Summarize the posterior for each neuron's delta_i
+        # This returns a DataFrame with mean, sd, hdi, etc.
+        posterior_summary = pm.summary(trace, var_names=["delta_i"], hdi_prob=0.95)
+        
+        # 'posterior_summary' has an index like "delta_i__0", "delta_i__1", ...
+        # We'll re-map that to actual neuron indices.
+        # Alternatively, we can just keep them as is and rely on ordering.
+        # Let's reorganize so each row corresponds to the same neuron index.
+
+        # posterior_summary is a DataFrame with row index "delta_i__X"
+        # We'll parse out X:
+        new_index = [int(rowname.split('__')[-1]) for rowname in posterior_summary.index]
+        posterior_summary.index = pd.Index(new_index, name='neuron_index')
+        posterior_summary = posterior_summary.sort_index()
+
+        # Optionally, compute posterior probability of "delta_i > 0" for each neuron
+        # We'll do that by checking how many samples exceed 0 in the chain:
+        delta_samples = trace.posterior["delta_i"].stack(draws=("chain", "draw"))
+        # delta_samples will be shape (n_neurons, total_draws)
+        prob_greater_than_zero = (delta_samples > 0).mean(dim="draws").values
+        
+        # Insert that as a new column
+        posterior_summary["P(delta>0)"] = prob_greater_than_zero
+        
+        # Store the results
+        data['bayesian_results'] = posterior_summary
+        
+        return data
+
+
+
 class AnalysisPipeline:
     """Executes a series of PipelineStep objects in order."""
     
