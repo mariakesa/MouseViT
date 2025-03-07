@@ -423,6 +423,72 @@ class BayesianHypothesisTestingStep(PipelineStep):
         return data
 
 
+import pymc as pm
+import numpy as np
+import pandas as pd
+
+class BayesianHypothesisTestingAveragedStep(PipelineStep):
+    """
+    A pipeline step that performs Bayesian hypothesis testing across neurons
+    using averaged log-likelihood differences per neuron while still 
+    accounting for within-neuron variability.
+    
+    Expects:
+      - data['avg_logliks']: shape (n_neurons,)
+      - data['var_logliks']: shape (n_neurons,) (per-neuron variance)
+      - data['num_trials']: shape (n_neurons,) (how many trials per neuron)
+      
+    Returns:
+      - data['bayesian_results']: posterior summaries of delta_i.
+    """
+    
+    def __init__(self, draws=2000, tune=1000, target_accept=0.9, random_seed=42):
+        self.draws = draws
+        self.tune = tune
+        self.target_accept = target_accept
+        self.random_seed = random_seed
+
+    def process(self, data):
+        avg_logliks = data.get('avg_logliks', None)
+        var_logliks = data.get('var_logliks', None)
+        num_trials = data.get('num_trials', None)
+
+        if avg_logliks is None or var_logliks is None or num_trials is None:
+            raise ValueError("Missing required data: 'avg_logliks', 'var_logliks', 'num_trials'")
+
+        n_neurons = len(avg_logliks)
+
+        # Compute adjusted per-neuron variance for the mean
+        adjusted_variance = var_logliks / num_trials  # Prevents overconfidence
+        adjusted_std = np.sqrt(adjusted_variance)
+
+        with pm.Model() as model:
+            # Global mean and variance
+            mu_delta = pm.Normal("mu_delta", mu=0.0, sigma=1.0)
+            sigma_delta = pm.HalfCauchy("sigma_delta", beta=2.5)
+            
+            # Per-neuron effect
+            delta_i = pm.Normal("delta_i", mu=mu_delta, sigma=sigma_delta, shape=n_neurons)
+
+            # Observed averages with appropriate uncertainty
+            pm.Normal("obs", mu=delta_i, sigma=adjusted_std, observed=avg_logliks)
+            
+            # Sample
+            trace = pm.sample(draws=self.draws, tune=self.tune, target_accept=self.target_accept, random_seed=self.random_seed, cores=1)
+
+        # Summarize results
+        posterior_summary = pm.summary(trace, var_names=["delta_i"], hdi_prob=0.95)
+        posterior_summary.index = pd.Index(range(n_neurons), name='neuron_index')
+
+        # Compute posterior probability P(delta > 0)
+        delta_samples = trace.posterior["delta_i"].stack(draws=("chain", "draw"))
+        prob_greater_than_zero = (delta_samples > 0).mean(dim="draws").values
+        posterior_summary["P(delta>0)"] = prob_greater_than_zero
+
+        data['bayesian_results'] = posterior_summary
+        return data
+
+
 
 class AnalysisPipeline:
     """Executes a series of PipelineStep objects in order."""
