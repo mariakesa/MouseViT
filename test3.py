@@ -135,13 +135,15 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         total_neurons = 0  # Keep track of the total number of neurons
-
+        total_data_points =0
         for i in range(num_batches):
             # Batch slicing
             start = i * batch_size
             end = start + batch_size
             X_batch = Xe_train_tensor[start:end]
             Y_batch = Xn_train_tensor[start:end]
+            n_time = Y_batch.shape[0]
+            #print(Y_batch.shape)
 
             # Forward pass
             loss, _, _, _, _, _ = model(X_batch, Y_batch)
@@ -157,16 +159,20 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
             optimizer.step()
 
             epoch_loss += loss.item()
-            total_neurons += num_neurons
+            #total_neurons += num_neurons
+            total_data_points += n_time * num_neurons
+
+        avg_surprise_per_data_point = epoch_loss / total_data_points
+        avg_p_per_data_point = np.exp(-avg_surprise_per_data_point)
 
         # Compute average surprise per neuron
-        avg_surprise_per_neuron = epoch_loss / total_neurons if total_neurons > 0 else 0
-        avg_p_per_neuron = np.exp(-avg_surprise_per_neuron)  # Compute probability from surprise
+        #avg_surprise_per_neuron = epoch_loss / total_neurons if total_neurons > 0 else 0
+        #avg_p_per_neuron = np.exp(-avg_surprise_per_neuron)  # Compute probability from surprise
 
         # Print epoch progress
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss/num_batches:.4f}, "
-            f"Avg Surprise per Neuron: {avg_surprise_per_neuron:.4f}, "
-            f"Avg p per Neuron: {avg_p_per_neuron:.4f}")
+            f"Avg Surprise per Neuron: {avg_surprise_per_data_point:.4f}, "
+            f"Avg p per Neuron: {avg_p_per_data_point:.4f}")
 
     print(f"Training complete on fold {fold}.")
 
