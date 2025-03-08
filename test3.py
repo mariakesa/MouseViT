@@ -2,6 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+import torch
+import torch.optim as optim
+from src.zig_model import ZIG
 
 # 1) Load .env
 load_dotenv()
@@ -89,5 +92,94 @@ def main():
         print(f"  Xn_test : {Xn_test.shape},  Xe_test : {Xe_test.shape}")
         print(f"  frames_train: {frames_train.shape}, frames_test: {frames_test.shape}")
 
+    return merged_folds
+
+def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pth"):
+    """
+    Train a ZIG model on a specific fold and save the trained model.
+
+    Args:
+        merged_folds (list): List of folds containing (Xn_train, Xe_train, _, _, _, _).
+        fold (int): Index of the fold to use for training. Defaults to 0.
+        save_path (str): Path to save the trained model.
+    """
+
+    # Validate fold index
+    if fold < 0 or fold >= len(merged_folds):
+        raise ValueError(f"Invalid fold index {fold}. Must be between 0 and {len(merged_folds) - 1}.")
+
+    # Extract a single fold
+    Xn_train, Xe_train, _, _, _, _ = merged_folds[fold]
+
+    # Convert to tensors
+    Xn_train_tensor = torch.tensor(Xn_train, dtype=torch.float32)
+    Xe_train_tensor = torch.tensor(Xe_train, dtype=torch.float32)
+
+    # Model hyperparameters
+    yDim = Xn_train_tensor.shape[1]  # Output dimensions (embedding size)
+    xDim = Xe_train_tensor.shape[1]  # Input dimensions (neural activity size)
+    gen_nodes = 128  # Number of hidden layer neurons
+    factor = torch.min(Xn_train_tensor, axis=0).values  # Default factor for initialization
+
+    # Initialize ZIG model
+    model = ZIG(yDim, xDim, gen_nodes, factor)
+
+    # Set up optimizer
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # Training loop
+    num_epochs = 100
+    batch_size = 32
+    num_batches = len(Xe_train_tensor) // batch_size
+
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        total_neurons = 0  # Keep track of the total number of neurons
+
+        for i in range(num_batches):
+            # Batch slicing
+            start = i * batch_size
+            end = start + batch_size
+            X_batch = Xe_train_tensor[start:end]
+            Y_batch = Xn_train_tensor[start:end]
+
+            # Forward pass
+            loss, _, _, _, _, _ = model(X_batch, Y_batch)
+
+            loss = -loss  # Negative loss because entropy loss is a sum
+
+            # Get number of neurons in the batch
+            num_neurons = Y_batch.shape[1]  # Assuming second dimension is neurons
+
+            # Accumulate total loss and neuron count
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+            total_neurons += num_neurons
+
+        # Compute average surprise per neuron
+        avg_surprise_per_neuron = epoch_loss / total_neurons if total_neurons > 0 else 0
+        avg_p_per_neuron = np.exp(-avg_surprise_per_neuron)  # Compute probability from surprise
+
+        # Print epoch progress
+        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss/num_batches:.4f}, "
+            f"Avg Surprise per Neuron: {avg_surprise_per_neuron:.4f}, "
+            f"Avg p per Neuron: {avg_p_per_neuron:.4f}")
+
+    print(f"Training complete on fold {fold}.")
+
+    # Ensure the directory exists before saving
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Save the model
+    torch.save(model.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
+
+
+
+
 if __name__ == "__main__":
-    main()
+    merged_dat=main()
+    regression(merged_dat)
