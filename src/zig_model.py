@@ -87,13 +87,19 @@ class ZIG(nn.Module):
         # Clamp the difference (y_temp - loc_temp) to avoid log(0) or log(negative)
         delta = torch.clamp(y_temp - loc_temp, min=eps)
         
-        LY1 = torch.sum(torch.log(p_temp) - k_temp * torch.log(r_temp) - (y_temp - loc_temp) / r_temp)
-        LY2 = torch.sum(-torch.lgamma(k_temp) + (k_temp - 1) * torch.log(delta))
+        #LY1 = torch.sum(torch.log(p_temp) - k_temp * torch.log(r_temp) - (y_temp - loc_temp) / r_temp)
+        #LY2 = torch.sum(-torch.lgamma(k_temp) + (k_temp - 1) * torch.log(delta))
         
         # For entries where Y == 0:
         gr_temp = p[~mask]
         LY3 = torch.sum(torch.log(1 - gr_temp + eps))  # add eps for safety
+
+        gamma = 2  # Tunable hyperparameter, 2 is a common choice
+        LY1_focal = torch.sum((1 - p_temp) ** gamma * (torch.log(p_temp) - k_temp * torch.log(r_temp) - (y_temp - loc_temp) / r_temp))
+        LY2_focal = torch.sum((1 - p_temp) ** gamma * (-torch.lgamma(k_temp) + (k_temp - 1) * torch.log(delta)))
+
+        entropy_loss = LY1_focal + LY2_focal + LY3
         
-        entropy_loss = LY1 + LY2 + LY3
+        #entropy_loss = LY1 + LY2 + LY3
         
         return entropy_loss, theta, k, p, self.loc, rate
