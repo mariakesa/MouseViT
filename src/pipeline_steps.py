@@ -188,7 +188,12 @@ class StimulusGroupKFoldSplitterStep(PipelineStep):
                     trial_vector = np.zeros(dff_traces.shape[0])
                 else:
                     relevant_traces = dff_traces[:, time_indices]
+                    #trial_vector = np.max(relevant_traces, axis=1)
+                    threshold = 0.0  # or pick something domain-appropriate
                     trial_vector = np.max(relevant_traces, axis=1)
+
+                    # Convert to binary: 1 if above threshold, else 0
+                    trial_vector = (trial_vector > threshold).astype(float)
                 
                 X_list.append(trial_vector)
                 frame_list.append(frame_idx)

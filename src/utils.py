@@ -25,7 +25,78 @@ def make_container_dict(boc):
         eid_dict[container_id][session_type] = ids[0]
     return eid_dict
 
+import torch
+import numpy as np
 
+def evaluate_model_on_fold(
+    merged_folds, 
+    fold, 
+    model_path="/home/maria/MouseViT/trained_models/zig_binary_event_fold.pth", 
+    save_path=None
+):
+    """
+    Evaluates a binary-event model (e.g., ZIGBinaryEvent) on a specific test fold 
+    and returns p(event) and p(no-event) for each test sample.
+
+    Args:
+        merged_folds (list): List of folds, each containing 
+            (Xn_train, Xe_train, Xn_test, Xe_test, frames_train, frames_test).
+        fold (int): The fold number to evaluate.
+        model_path (str): Path to the trained model checkpoint.
+        save_path (str, optional): If provided, saves the probabilities as .npz.
+
+    Returns:
+        event_probs (np.ndarray): Shape (num_samples, num_neurons).
+            Probability of an event for each sample & neuron.
+        nonevent_probs (np.ndarray): Shape (num_samples, num_neurons).
+            Probability of no event = 1 - event_probs.
+    """
+
+    # --- 1) Load the trained model ---
+    checkpoint = torch.load(model_path, map_location="cpu")
+    # The fold's training data just to figure out yDim, xDim
+    Xn_train, Xe_train, _, _, _, _ = merged_folds[fold]
+
+    # Define dimensions and re-initialize the same model class used in training.
+    yDim = Xn_train.shape[1]  # Number of neurons
+    xDim = Xe_train.shape[1]  # Embedding dim
+    gen_nodes = 128  # Must match training
+    alpha = 0.75
+    gamma = 2.0
+
+    # If you named your binary model class differently, replace accordingly:
+   # from zig_binary_event import ZIGBinaryEvent  # or wherever you defined it
+    model = ZIG(yDim=yDim, xDim=xDim, gen_nodes=gen_nodes, alpha=alpha, gamma=gamma)
+    
+    model.load_state_dict(checkpoint)
+    model.eval()
+
+    # --- 2) Get the test data ---
+    _, _, Xn_test, Xe_test, frames_test, _ = merged_folds[fold]
+    Xn_test_tensor = torch.tensor(Xn_test, dtype=torch.float32)
+    Xe_test_tensor = torch.tensor(Xe_test, dtype=torch.float32)
+
+    # --- 3) Forward pass (no gradient) to get probabilities ---
+    with torch.no_grad():
+        # For binary-event model, forward() returns p if Y=None
+        # p: shape (N, yDim) = Probability of an event for each sample & neuron
+        p = model(Xe_test_tensor)  
+
+    # Convert to numpy
+    event_probs = p.cpu().numpy()
+    nonevent_probs = 1.0 - event_probs
+
+    # --- 4) Optionally save ---
+    if save_path:
+        # e.g., store them in .npz format
+        np.savez(save_path, event_probs=event_probs, nonevent_probs=nonevent_probs)
+        print(f"Saved test probabilities to {save_path}")
+
+    print(f"Evaluated fold {fold}. event_probs shape: {event_probs.shape}")
+
+    return event_probs, Xn_test_tensor
+
+'''
 def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/trained_models/zig_model_fold.pth", save_path=None):
     """
     Evaluates the trained ZIG model on a specific test fold and computes the likelihood of the observed data 
@@ -86,7 +157,7 @@ def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/
     print(f"Evaluated fold {fold}. Test likelihoods array shape: {test_likelihoods.shape}")
 
     return test_likelihoods, event_likelihoods  # Return full 2D array (num_neurons, num_time_points)
-
+'''
 '''
 def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/trained_models/zig_model_fold.pth", save_path=None):
     """
