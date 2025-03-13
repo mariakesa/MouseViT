@@ -69,7 +69,7 @@ def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/
     # Compute probability of the observed data (Xn_test) under the ZIG model
     eps = 1e-6  # Small value for numerical stability
     mask = (Xn_test_tensor != 0)  # Identify nonzero spikes
-
+    print(mask)
     # Compute the probability of observed spike counts using the ZIG model:
     p_zeros = 1 - p  # Probability of being in the zero-inflated state
     p_spike = p * torch.exp(-k * torch.log(theta) - (Xn_test_tensor - loc) / theta) * \

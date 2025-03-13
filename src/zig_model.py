@@ -99,7 +99,7 @@ class ZIG(nn.Module):
         gr_temp = p[~mask]
         LY3 = torch.sum(torch.log(1 - gr_temp + eps))  # add eps for safety
 
-        gamma = 2  # Tunable hyperparameter, 2 is a common choice
+        gamma = 10  # Tunable hyperparameter, 2 is a common choice
         LY1_focal = torch.sum((1 - p_temp) ** gamma * (torch.log(p_temp) - k_temp * torch.log(r_temp) - (y_temp - loc_temp) / r_temp))
         LY2_focal = torch.sum((1 - p_temp) ** gamma * (-torch.lgamma(k_temp) + (k_temp - 1) * torch.log(delta)))
 
