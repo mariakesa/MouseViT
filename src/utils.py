@@ -77,7 +77,7 @@ def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/
 
     # Use mask to apply zero-inflation correctly:
     test_likelihoods = torch.where(mask, p_spike, p_zeros + eps).cpu().numpy()
-
+    event_likelihoods= torch.where(mask, p_spike, 0).cpu().numpy()
     # Save as a .npy file if a save path is provided
     if save_path:
         np.save(save_path, test_likelihoods)
@@ -85,7 +85,7 @@ def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/
 
     print(f"Evaluated fold {fold}. Test likelihoods array shape: {test_likelihoods.shape}")
 
-    return test_likelihoods  # Return full 2D array (num_neurons, num_time_points)
+    return test_likelihoods, event_likelihoods  # Return full 2D array (num_neurons, num_time_points)
 
 '''
 def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/trained_models/zig_model_fold.pth", save_path=None):

@@ -196,9 +196,12 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
 
 if __name__ == "__main__":
     merged_dat=main()
-    test_probs=regression(merged_dat)
+    test_probs, event_probs=regression(merged_dat)
     test_probs=np.array(test_probs)
+    event_probs=np.array(event_probs)
     np.save('test_probs.npy', test_probs)
+    np.save('event_probs.npy', event_probs)
     print(test_probs)
+    print(event_probs)
     #plt.hist(test_probs, bins=50)
     #plt.show()
