@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import torch
 import torch.optim as optim
 from src.zig_model import ZIG
+from src.utils import evaluate_model_on_fold
+import matplotlib.pyplot as plt
 
 # 1) Load .env
 load_dotenv()
@@ -124,6 +126,7 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
     # Initialize ZIG model
     model = ZIG(yDim, xDim, gen_nodes, factor)
 
+    model.train()
     # Set up optimizer
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -171,8 +174,8 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
 
         # Print epoch progress
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss/num_batches:.4f}, "
-            f"Avg Surprise per Neuron: {avg_surprise_per_data_point:.4f}, "
-            f"Avg p per Neuron: {avg_p_per_data_point:.4f}")
+            f"Avg Surprise per Data Point: {avg_surprise_per_data_point:.4f}, "
+            f"Avg p per Data Point: {avg_p_per_data_point:.4f}")
 
     print(f"Training complete on fold {fold}.")
 
@@ -183,9 +186,19 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_model_fold.pt
     torch.save(model.state_dict(), save_path)
     print(f"Model saved to {save_path}")
 
+    test_probs=evaluate_model_on_fold(merged_folds, fold, model_path=save_path)
+    return test_probs
+
+
+
 
 
 
 if __name__ == "__main__":
     merged_dat=main()
-    regression(merged_dat)
+    test_probs=regression(merged_dat)
+    test_probs=np.array(test_probs)
+    np.save('test_probs.npy', test_probs)
+    print(test_probs)
+    #plt.hist(test_probs, bins=50)
+    #plt.show()

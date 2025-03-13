@@ -20,6 +20,9 @@ class ZIG(nn.Module):
         self.fc2 = nn.Linear(gen_nodes, gen_nodes)
         self.fc_theta = nn.Linear(gen_nodes, yDim)
         self.fc_p = nn.Linear(gen_nodes, yDim)
+
+        self.dropout1 = nn.Dropout(p=0.9)
+        self.dropout2 = nn.Dropout(p=0.9)
         
         # Initialize weights with uniform distribution:
         rangeRate1 = 1.0 / math.sqrt(xDim)
@@ -46,7 +49,9 @@ class ZIG(nn.Module):
     def forward(self, X, Y=None):
         # Pass input through the network with tanh activations:
         full1 = torch.tanh(self.fc1(X))
+        full1 = self.dropout1(full1)
         full2 = torch.tanh(self.fc2(full1))
+        full2 = self.dropout2(full2)
         full_theta = self.fc_theta(full2)
         full_p = self.fc_p(full2)
         
