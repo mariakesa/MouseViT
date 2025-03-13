@@ -7,6 +7,8 @@ import torch.optim as optim
 from src.zig_model import ZIG
 from src.utils import evaluate_model_on_fold
 import matplotlib.pyplot as plt
+from torch import nn
+from transformers import ViTModel, ViTImageProcessor, ViTConfig
 
 # 1) Load .env
 load_dotenv()
@@ -20,7 +22,6 @@ from src.pipeline_steps import (
     StimulusGroupKFoldSplitterStep,
     MergeEmbeddingsStep
 )
-from transformers import ViTModel, ViTImageProcessor
 
 def make_container_dict(boc):
     experiment_container = boc.get_experiment_containers()
@@ -37,6 +38,8 @@ def make_container_dict(boc):
             eid_dict[c_id] = {}
         eid_dict[c_id][sess_type] = ids[0]
     return eid_dict
+
+# Reset the weights of the model to a naive stat
 
 def main():
     # A) Allen BOC
@@ -57,9 +60,10 @@ def main():
     # D) HF model + processor
     processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
     model = ViTModel.from_pretrained("google/vit-base-patch16-224")
-
+    model.init_weights()
     # E) Embedding cache dir
     embedding_cache_dir = os.environ.get('TRANSF_EMBEDDING_PATH', 'embeddings_cache')
+    #embedding_cache_dir='/home/maria/Documents/NullViTEmbeddings'
 
     # F) Build pipeline with all steps
     pipeline = AnalysisPipeline([

@@ -77,7 +77,7 @@ def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/
 
     # Use mask to apply zero-inflation correctly:
     test_likelihoods = torch.where(mask, p_spike, p_zeros + eps).cpu().numpy()
-    event_likelihoods= torch.where(mask, p_spike, 0).cpu().numpy()
+    event_likelihoods= torch.where(mask, p, 0).cpu().numpy()
     # Save as a .npy file if a save path is provided
     if save_path:
         np.save(save_path, test_likelihoods)

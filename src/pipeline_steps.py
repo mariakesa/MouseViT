@@ -87,6 +87,7 @@ class ImageToEmbeddingStep(PipelineStep):
             if hasattr(model, 'name_or_path') else "unnamed_model"
         )
         self.embeddings_file = self.embedding_cache_dir / f"{self.model_prefix}_embeddings.pkl"
+        print('BOOM',self.embeddings_file)
 
     def process(self, data):
         """
