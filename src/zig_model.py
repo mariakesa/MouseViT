@@ -250,7 +250,7 @@ class ZIG(nn.Module):
         event_label = (Y > 0).float()
 
         # Focal loss terms
-        alpha = 0.25
+        alpha = 0.05
         gamma = 2.0
         bce = F.binary_cross_entropy_with_logits(logits_p, event_label, reduction='none')
 

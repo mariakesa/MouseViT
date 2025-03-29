@@ -4,6 +4,23 @@ import torch
 from src.zig_model import ZIG
 import torch
 import numpy as np
+from transformers import ViTModel, ViTImageProcessor
+import os
+from dotenv import load_dotenv
+import torch.optim as optim
+
+# 1) Load .env
+load_dotenv()
+
+# 2) Import your pipeline steps + the allen_api
+from src.data_loader import allen_api
+from src.pipeline_steps import (
+    AnalysisPipeline,
+    AllenStimuliFetchStep,
+    ImageToEmbeddingStep,
+    StimulusGroupKFoldSplitterStep,
+    MergeEmbeddingsStep
+)
 
 def make_container_dict(boc):
     '''
@@ -25,8 +42,64 @@ def make_container_dict(boc):
         eid_dict[container_id][session_type] = ids[0]
     return eid_dict
 
-import torch
-import numpy as np
+
+def get_merged_folds():
+    # A) Allen BOC
+    boc = allen_api.get_boc()
+
+    # B) Container dict
+    eid_dict = make_container_dict(boc)
+    print(len(eid_dict), "containers found.")
+
+    # C) Session->stimuli mapping
+    stimulus_session_dict = {
+        'three_session_A': ['natural_movie_one', 'natural_movie_three'],
+        'three_session_B': ['natural_movie_one', 'natural_scenes'],
+        'three_session_C': ['natural_movie_one', 'natural_movie_two'],
+        'three_session_C2': ['natural_movie_one', 'natural_movie_two']
+    }
+
+    # D) HF model + processor
+    processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
+    model = ViTModel.from_pretrained("google/vit-base-patch16-224")
+
+    # E) Embedding cache dir
+    embedding_cache_dir = os.environ.get('TRANSF_EMBEDDING_PATH', 'embeddings_cache')
+
+    # F) Build pipeline with all steps
+    pipeline = AnalysisPipeline([
+        AllenStimuliFetchStep(boc),
+        ImageToEmbeddingStep(processor, model, embedding_cache_dir),
+        StimulusGroupKFoldSplitterStep(boc, eid_dict, stimulus_session_dict, n_splits=10),
+        MergeEmbeddingsStep(),  # merges the neural folds with the image embeddings
+    ])
+
+    # G) Run pipeline on a single container/session/stimulus
+    container_id = 511498742
+    #session = 'three_session_A'
+    #stimulus = 'natural_movie_three'
+    session='three_session_B'
+    stimulus='natural_scenes'
+    result = pipeline.run((container_id, session, stimulus))
+
+    # H) Print final results
+    print("\n=== FINAL PIPELINE OUTPUT ===")
+    print("Keys in 'result':", list(result.keys()))
+    #  'raw_data_dct', 'embedding_file', 'folds', 'merged_folds', etc.
+
+    print(f"Embedding file path: {result['embedding_file']}")
+    folds = result['folds']
+    print(f"Number of folds: {len(folds)}")
+
+    merged_folds = result['merged_folds']
+    for i, fold_data in enumerate(merged_folds, start=1):
+        (Xn_train, Xe_train, Xn_test, Xe_test, frames_train, frames_test) = fold_data
+        print(f"\nFold {i}:")
+        print(f"  Xn_train: {Xn_train.shape}, Xe_train: {Xe_train.shape}")
+        print(f"  Xn_test : {Xn_test.shape},  Xe_test : {Xe_test.shape}")
+        print(f"  frames_train: {frames_train.shape}, frames_test: {frames_test.shape}")
+
+    return merged_folds
 
 def evaluate_model_on_fold(
     merged_folds, 
@@ -95,6 +168,65 @@ def evaluate_model_on_fold(
     print(f"Evaluated fold {fold}. event_probs shape: {event_probs.shape}")
 
     return event_probs, Xn_test_tensor
+
+def evaluate_model_KL_against_baseline(
+    merged_folds, 
+    fold, 
+    model_path="/home/maria/MouseViT/trained_models/zig_binary_event_fold.pth"
+):
+    """
+    Evaluates KL divergence between model predictions and baseline (mean spike rate).
+    
+    Returns:
+        mean_kl_per_neuron (np.ndarray): Shape (num_neurons,)
+    """
+    import torch.nn.functional as F
+
+    # Load model
+    checkpoint = torch.load(model_path, map_location="cpu")
+    Xn_train, Xe_train, Xn_test, Xe_test, _, _ = merged_folds[fold]
+
+    yDim = Xn_train.shape[1]
+    xDim = Xe_train.shape[1]
+    model = ZIG(neuronDim=yDim, xDim=xDim)
+    model.load_state_dict(checkpoint)
+    model.eval()
+
+    # Baseline: empirical spike probability per neuron in training set
+    # You could also use mean over full dataset if you prefer
+    with np.errstate(divide='ignore', invalid='ignore'):
+        p_baseline = (Xn_train > 0).mean(axis=0)  # shape (num_neurons,)
+        p_baseline = np.clip(p_baseline, 1e-6, 1 - 1e-6)  # avoid log(0)
+
+    # Model predictions
+    Xe_test_tensor = torch.tensor(Xe_test, dtype=torch.float32)
+    with torch.no_grad():
+        p_model = model(Xe_test_tensor).cpu().numpy()  # shape (N, num_neurons)
+
+    # Average empirical probability over test set (true distribution)
+    p_true = (Xn_test > 0).astype(np.float32)  # shape (N, num_neurons)
+    p_true = np.clip(p_true, 1e-6, 1 - 1e-6)
+    p_model = np.clip(p_model, 1e-6, 1 - 1e-6)
+
+    # Compute KL divergence per neuron:
+    # KL(p_true || p_model) averaged over test samples
+    kl_div = p_true * (np.log(p_true) - np.log(p_model)) + \
+             (1 - p_true) * (np.log(1 - p_true) - np.log(1 - p_model))
+    
+    mean_kl_per_neuron = kl_div.mean(axis=0)
+
+    # Compute KL against baseline too (optional)
+    p_baseline = np.tile(p_baseline, (p_true.shape[0], 1))
+    kl_baseline = p_true * (np.log(p_true) - np.log(p_baseline)) + \
+                  (1 - p_true) * (np.log(1 - p_true) - np.log(1 - p_baseline))
+    mean_kl_baseline = kl_baseline.mean(axis=0)
+
+    print(f"Mean KL(model || truth): {mean_kl_per_neuron.mean():.4f}")
+    print(f"Mean KL(baseline || truth): {mean_kl_baseline.mean():.4f}")
+
+    return mean_kl_per_neuron, mean_kl_baseline
+
+
 
 '''
 def evaluate_model_on_fold(merged_folds, fold, model_path="/home/maria/MouseViT/trained_models/zig_model_fold.pth", save_path=None):
