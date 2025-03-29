@@ -8,6 +8,11 @@ from transformers import ViTModel, ViTImageProcessor
 import os
 from dotenv import load_dotenv
 import torch.optim as optim
+import matplotlib.pyplot as plt
+from collections import defaultdict
+from scipy.stats import pearsonr
+from dotenv import load_dotenv
+from pathlib import Path
 
 # 1) Load .env
 load_dotenv()
@@ -169,63 +174,49 @@ def evaluate_model_on_fold(
 
     return event_probs, Xn_test_tensor
 
-def evaluate_model_KL_against_baseline(
-    merged_folds, 
-    fold, 
-    model_path="/home/maria/MouseViT/trained_models/zig_binary_event_fold.pth"
-):
-    """
-    Evaluates KL divergence between model predictions and baseline (mean spike rate).
-    
-    Returns:
-        mean_kl_per_neuron (np.ndarray): Shape (num_neurons,)
-    """
-    import torch.nn.functional as F
+def compute_neuron_correlation_and_stimuluswise_kl(merged_folds, fold, model_path="/home/maria/MouseViT/trained_models/zig_binary_event_fold.pth"):
+    Xn_train, Xe_train, Xn_test, Xe_test, _, frames_test = merged_folds[fold]
 
-    # Load model
-    checkpoint = torch.load(model_path, map_location="cpu")
-    Xn_train, Xe_train, Xn_test, Xe_test, _, _ = merged_folds[fold]
-
-    yDim = Xn_train.shape[1]
-    xDim = Xe_train.shape[1]
-    model = ZIG(neuronDim=yDim, xDim=xDim)
-    model.load_state_dict(checkpoint)
+    model = ZIG(neuronDim=Xn_train.shape[1], xDim=Xe_train.shape[1])
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
     model.eval()
 
-    # Baseline: empirical spike probability per neuron in training set
-    # You could also use mean over full dataset if you prefer
-    with np.errstate(divide='ignore', invalid='ignore'):
-        p_baseline = (Xn_train > 0).mean(axis=0)  # shape (num_neurons,)
-        p_baseline = np.clip(p_baseline, 1e-6, 1 - 1e-6)  # avoid log(0)
-
-    # Model predictions
-    Xe_test_tensor = torch.tensor(Xe_test, dtype=torch.float32)
     with torch.no_grad():
-        p_model = model(Xe_test_tensor).cpu().numpy()  # shape (N, num_neurons)
+        p_model = model(torch.tensor(Xe_test, dtype=torch.float32)).cpu().numpy()
 
-    # Average empirical probability over test set (true distribution)
-    p_true = (Xn_test > 0).astype(np.float32)  # shape (N, num_neurons)
-    p_true = np.clip(p_true, 1e-6, 1 - 1e-6)
-    p_model = np.clip(p_model, 1e-6, 1 - 1e-6)
+    p_true = (Xn_test > 0).astype(np.float32)
+    frame_to_idx = defaultdict(list)
+    for idx, f in enumerate(frames_test): frame_to_idx[f].append(idx)
 
-    # Compute KL divergence per neuron:
-    # KL(p_true || p_model) averaged over test samples
-    kl_div = p_true * (np.log(p_true) - np.log(p_model)) + \
-             (1 - p_true) * (np.log(1 - p_true) - np.log(1 - p_model))
-    
-    mean_kl_per_neuron = kl_div.mean(axis=0)
+    frames = sorted(frame_to_idx.keys())
+    p_model_avg = np.array([p_model[frame_to_idx[f]][0] for f in frames])
+    p_true_avg = np.array([p_true[frame_to_idx[f]].mean(0) for f in frames])
 
-    # Compute KL against baseline too (optional)
-    p_baseline = np.tile(p_baseline, (p_true.shape[0], 1))
-    kl_baseline = p_true * (np.log(p_true) - np.log(p_baseline)) + \
-                  (1 - p_true) * (np.log(1 - p_true) - np.log(1 - p_baseline))
-    mean_kl_baseline = kl_baseline.mean(axis=0)
+    # Correlation per neuron
+    corr = np.array([
+        pearsonr(p_true_avg[:, i], p_model_avg[:, i])[0]
+        if np.std(p_true_avg[:, i]) > 0 else np.nan
+        for i in range(p_true_avg.shape[1])
+    ])
 
-    print(f"Mean KL(model || truth): {mean_kl_per_neuron.mean():.4f}")
-    print(f"Mean KL(baseline || truth): {mean_kl_baseline.mean():.4f}")
+    # KL per stimulus
+    eps = 1e-6
+    pt = np.clip(p_true_avg, eps, 1 - eps)
+    qt = np.clip(p_model_avg, eps, 1 - eps)
+    kl = ((1 - pt) * np.log((1 - pt)/(1 - qt)) + pt * np.log(pt/qt)).sum(1)
 
-    return mean_kl_per_neuron, mean_kl_baseline
+    # Optional plot
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.hist(corr[~np.isnan(corr)], bins=20)
+    plt.title("Per-Neuron Correlation")
+    plt.subplot(1, 2, 2)
+    plt.hist(kl, bins=20)
+    plt.title("Per-Stimulus KL Divergence")
+    plt.tight_layout()
+    plt.show()
 
+    return corr, kl, p_model_avg, p_true_avg
 
 
 '''

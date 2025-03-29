@@ -9,6 +9,7 @@ from src.utils import evaluate_model_on_fold
 import matplotlib.pyplot as plt
 from torch import nn
 from transformers import ViTModel, ViTImageProcessor, ViTConfig
+from collections import defaultdict
 
 # 1) Load .env
 load_dotenv()
@@ -319,11 +320,31 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_binary_event_
         raise ValueError(f"Invalid fold index {fold}. Must be between 0 and {len(merged_folds) - 1}.")
 
     # --- 1) Extract training data for this fold ---
-    Xn_train, Xe_train, _, _, _, _ = merged_folds[fold]
+    Xn_train, Xe_train, Xn_test, Xe_test, frames_train, frames_test= merged_folds[fold]
 
     # Convert to tensors
     Xn_train_tensor = torch.tensor(Xn_train, dtype=torch.float32)
     Xe_train_tensor = torch.tensor(Xe_train, dtype=torch.float32)
+
+    frame_to_indices = defaultdict(list)
+    for idx, frame in enumerate(frames_train):
+        frame_to_indices[frame].append(idx)
+
+    unique_frames = sorted(frame_to_indices.keys())
+
+    Xn_avg = np.array([
+        Xn_train[frame_to_indices[frame]].mean(axis=0)
+        for frame in unique_frames
+    ])
+
+    Xe_first = np.array([
+        Xe_train[frame_to_indices[frame][0]]
+        for frame in unique_frames
+    ])
+    Xn_norm = (Xn_avg - Xn_avg.min(axis=0)) / (Xn_avg.max(axis=0) - Xn_avg.min(axis=0))
+
+    Xn_train_tensor = torch.tensor(Xn_norm)
+    Xe_train_tensor = torch.tensor(Xe_first)
 
     # --- 2) Model hyperparameters ---
     yDim = Xn_train_tensor.shape[1]  # Number of neurons (outputs)
@@ -342,7 +363,7 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_binary_event_
 
     # --- 4) Set up optimizer ---
     model.train()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 
     # --- 5) Training loop ---
     num_epochs = 100

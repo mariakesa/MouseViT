@@ -231,6 +231,9 @@ class ZIG(nn.Module):
 
         self.fc1= nn.Linear(xDim, neuronDim)
         
+        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.zeros_(self.fc1.bias)
+        
     def forward(self, X, Y=None):
         # Pass input through the network
         logits_p= self.fc1(X)
@@ -258,5 +261,5 @@ class ZIG(nn.Module):
         focal_weight = alpha * (1 - pt) ** gamma
         focal_loss = focal_weight * bce
 
-        return focal_loss, p
+        return bce, p
 
