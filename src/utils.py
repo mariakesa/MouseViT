@@ -66,7 +66,7 @@ def evaluate_model_on_fold(
 
     # If you named your binary model class differently, replace accordingly:
    # from zig_binary_event import ZIGBinaryEvent  # or wherever you defined it
-    model = ZIG(yDim=yDim, xDim=xDim, gen_nodes=gen_nodes, alpha=alpha, gamma=gamma)
+    model = ZIG(neuronDim=yDim,xDim=xDim)
     
     model.load_state_dict(checkpoint)
     model.eval()

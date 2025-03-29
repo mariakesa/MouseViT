@@ -330,18 +330,14 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_binary_event_
     xDim = Xe_train_tensor.shape[1]  # Embedding dim
     gen_nodes = 128
     alpha = 0.75  # Weight for positive (event) examples
-    gamma = 2.0   # Focal exponent
-    p_dropout = 0.9
+    gamma = 5.0   # Focal exponent
+    p_dropout = 0.5
 
     # --- 3) Initialize the binary-event model (focal loss) ---
     # Make sure the import path is correct for your setup.
     model = ZIG(
-        yDim=yDim,
-        xDim=xDim,
-        gen_nodes=gen_nodes,
-        alpha=alpha,
-        gamma=gamma,
-        p_dropout=p_dropout
+        neuronDim=yDim,
+        xDim=xDim
     )
 
     # --- 4) Set up optimizer ---
@@ -374,7 +370,9 @@ def regression(merged_folds, fold=0, save_path="trained_models/zig_binary_event_
 
             # 2) Backprop & update
             optimizer.zero_grad()
+            focal_loss = focal_loss.mean()
             focal_loss.backward()
+            #focal_loss.backward()
             optimizer.step()
 
             # 3) Accumulate focal loss

@@ -111,7 +111,6 @@ class ZIG(nn.Module):
         
         return entropy_loss, theta, k, p, self.loc, rate
     
-'''
     
 import torch
 import torch.nn as nn
@@ -218,6 +217,46 @@ class ZIG(nn.Module):
         # Sum (or mean) over all elements. Here, we'll just sum.
         # You could also do a .mean() if you prefer an average loss.
         focal_loss = focal_loss_elementwise.sum()
+
+        return focal_loss, p
+'''
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
+class ZIG(nn.Module):
+    def __init__(self,xDim, neuronDim):
+        super(ZIG, self).__init__()
+
+        self.fc1= nn.Linear(xDim, neuronDim)
+        
+    def forward(self, X, Y=None):
+        # Pass input through the network
+        logits_p= self.fc1(X)
+        p= torch.sigmoid(logits_p)
+        if Y is None:
+            # If no labels are provided, just return probabilities
+            return p
+
+        # Otherwise, compute the focal loss
+        # 1) Convert Y>0 to a binary event label
+        event_label = (Y > 0).float()
+
+        # 2) Compute the standard binary cross-entropy for each output
+        # We'll do this in a 'none' reduction so we can apply focal weighting manually
+
+        p = torch.sigmoid(logits_p)
+        event_label = (Y > 0).float()
+
+        # Focal loss terms
+        alpha = 0.25
+        gamma = 2.0
+        bce = F.binary_cross_entropy_with_logits(logits_p, event_label, reduction='none')
+
+        pt = torch.exp(-bce)
+        focal_weight = alpha * (1 - pt) ** gamma
+        focal_loss = focal_weight * bce
 
         return focal_loss, p
 
